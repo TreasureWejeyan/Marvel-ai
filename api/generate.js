@@ -1,54 +1,54 @@
 import fetch from "node-fetch";
+import Cors from "cors";
+
+const cors = Cors({
+  methods: ["POST", "OPTIONS"],
+  origin: "*", // allow all origins for now (can restrict later)
+});
+
+function runMiddleware(req, res, fn) {
+  return new Promise((resolve, reject) => {
+    fn(req, res, (result) => {
+      if (result instanceof Error) return reject(result);
+      return resolve(result);
+    });
+  });
+}
 
 export default async function handler(req, res) {
+  await runMiddleware(req, res, cors);
+
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Only POST allowed" });
-  }
-
-  // ✅ Enable CORS so frontend can call it
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
-    const { lyrics, genre, type } = req.body;
+    const { lyrics, genre } = req.body;
 
-    if (!lyrics) {
-      return res.status(400).json({ error: "Lyrics are required" });
-    }
-
-    // ✅ Hugging Face model (music generation)
-    const MODEL = "facebook/musicgen-small";
-
-    const hfRes = await fetch(
-      `https://api-inference.huggingface.co/models/${MODEL}`,
+    const response = await fetch(
+      "https://api-inference.huggingface.co/models/facebook/musicgen-small",
       {
         method: "POST",
         headers: {
-          Authorization: "Bearer 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",
+          "Authorization": `Bearer ${process.env.HF_API_KEY}`, // stored securely
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          inputs: `${genre || "hip hop"} style song. Lyrics: ${lyrics}`,
+          inputs: `${lyrics}. Genre: ${genre}`,
         }),
       }
     );
 
-    if (!hfRes.ok) {
-      const errText = await hfRes.text();
-      throw new Error(`Hugging Face error: ${errText}`);
+    if (!response.ok) {
+      const err = await response.text();
+      return res.status(500).json({ error: err });
     }
 
-    // ✅ Return audio file
-    const arrayBuffer = await hfRes.arrayBuffer();
+    const arrayBuffer = await response.arrayBuffer();
     res.setHeader("Content-Type", "audio/mpeg");
     res.send(Buffer.from(arrayBuffer));
-  } catch (err) {
-    console.error("❌ Backend error:", err);
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error("Backend error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
-          }
+      }
